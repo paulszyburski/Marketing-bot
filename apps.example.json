@@ -1,0 +1,11 @@
+[
+  {
+    "id": "driveproof",
+    "appName": "DriveProof",
+    "appDescription": "Helps users document rental car damage.",
+    "appLink": "https://example.com",
+    "logo": "assets/driveproof/logo.png",
+    "enabled": true,
+    "profilePath": "data/DriveProof/chrome_profile"
+  }
+]

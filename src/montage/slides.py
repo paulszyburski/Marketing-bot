@@ -126,26 +126,6 @@ def mend_text_and_image(image_url, text):
 
     return image
 
-"""
-def mend_texts_and_images(image_urls, texts, output_dir):
-    if len(image_urls) != len(texts):
-        raise ValueError("image_urls and texts must have the same length")
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    saved_paths = []
-
-    for i, (image_url, text) in enumerate(zip(image_urls, texts), start=1):
-        image = mend_text_and_image(image_url, text)
-
-        path = os.path.join(output_dir, f"image_{i}.jpg")
-
-        image.save(path, quality=95)
-
-        saved_paths.append(path)
-
-    return saved_paths
-"""
 
 def mend_texts_and_images(image_urls, texts):
     if len(image_urls) != len(texts):

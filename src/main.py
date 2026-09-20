@@ -1,9 +1,13 @@
 from AI.videogeneration import generate_video
 from AI.chatgpt import *
-from montage.slides import *
-from browser.pinterest import *
+from browser.tiktok import *
+from browser.browser import *
+from AI.slideshowgeneration import generate_slideshow
+from playwright.sync_api import sync_playwright
 
-from datetime import date, datetime
+import time
+from datetime import date
+from pathlib import Path
 from utils import *
 
 
@@ -26,80 +30,82 @@ def videos():
 
             print(video_idea, "\n\n\n\n\n")
 
-            script = generate_video_script(
+            video_data = generate_video_script(
                 video_idea,
                 app
             )
 
-            print(script)
+            print(video_data)
 
-            generate_video(script)
+            generate_video(video_data, app)
 
         break
 
 
 def slides():
-    apps = import_json(APPS_PATH)
+    for app in import_json(APPS_PATH):
+        generate_slideshow(app)
 
-    try:
+
+def open_tiktok(apps):
+
+    with sync_playwright() as p:
+
         for app in apps:
-            app_name = app["appName"]
+            chrome = Browser(app)
+            chrome.open()
 
-            slides_idea = generate_slides_idea(app)
+            pw_browser = p.chromium.connect_over_cdp(chrome.cdp_url)
 
-            slides_data = generate_slides(
-                slides_idea,
-                app
-            )
+            context = pw_browser.contexts[0]
 
-            print(slides_data)
+            tiktok = Tiktok(context, app)
 
-            texts = []
-            image_urls = []
+            tiktok.open()
 
-            for slide in slides_data["slides"]:
-                text = slide["text"]
-                image_query = slide["imageQuery"]
+            time.sleep(10)
 
-                print(f"\nSearching image for: {image_query}")
+            video_path = "data/DriveProof/videos/2026-09-19/video_3.mp4"
+            video_data = import_json(Path(video_path).with_suffix(".json"))
 
-                image_url = search_image(
-                    image_query,
-                )
+            slides_path = "data/DriveProof/slides/2026.09.19_18:42"
+            slides_data = "data/DriveProof/slides/2026.09.19_18:42/data.json"
 
-                if image_url is None:
-                    print(
-                        f"Skipping slide - no image found: "
-                        f"{image_query}"
-                    )
-                    continue
+            #tiktok.upload_video(video_path,video_data["description"],video_data["hashtags"],)
+            tiktok.upload_slides(slides_path, slides_data)
 
-                texts.append(text)
-                image_urls.append(image_url)
+            # do TikTok stuff here
+            # tiktok.upload(...)
+            # tiktok.post(...)
+            input()
 
-            montaged_images = mend_texts_and_images(
-                image_urls,
-                texts,
-            )
+            pw_browser.close()
+            chrome.close()
 
-            print("Generated images:")
-            print(montaged_images)
+def main(apps):
+    with sync_playwright() as p:
+        for app in apps:
+            chrome = Browser(app)
+            pw_browser = None
 
-            print("Saving Images.")
+            try:
+                chrome.open()
+                pw_browser = p.chromium.connect_over_cdp(chrome.cdp_url)
+                context = pw_browser.contexts[0]
+                tiktok = Tiktok(context, app)
 
-            now = datetime.now()
+                slides_path = generate_slideshow(app)
+                slides_data = Path(slides_path) / "data.json"
 
-            output_dir = f"data/{app_name}/slides/{now}"
-            os.makedirs(output_dir, exist_ok=True)
-            for i, image in enumerate(montaged_images):
-                path = os.path.join(output_dir, f"image_{i}.jpg")
+                tiktok.open()
+                time.sleep(10)
+                tiktok.upload_slides(slides_path, str(slides_data))
+                time.sleep(10)
+            finally:
+                if pw_browser is not None:
+                    pw_browser.close()
+                chrome.close()
 
-                image.save(path, quality=96)
-
-            print("Saved!")
-
-    finally:
-        exit()
-
-
-slides()
+if __name__ == "__main__":
+    apps = import_json(APPS_PATH)
+    main(apps)
