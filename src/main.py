@@ -98,9 +98,7 @@ def main(apps):
                 slides_data = Path(slides_path) / "data.json"
 
                 tiktok.open()
-                time.sleep(10)
                 tiktok.upload_slides(slides_path, str(slides_data))
-                time.sleep(10)
             finally:
                 if pw_browser is not None:
                     pw_browser.close()
