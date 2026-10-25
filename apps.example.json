@@ -5,6 +5,7 @@
     "appDescription": "Helps users document rental car damage.",
     "appLink": "https://example.com",
     "logo": "assets/driveproof/logo.png",
+    "advertisingImage": "assets/advertising/driveproof/advertisement.png",
     "enabled": true,
     "profilePath": "data/DriveProof/chrome_profile"
   }

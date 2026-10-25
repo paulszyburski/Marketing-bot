@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate and upload one random Marketing Bot post
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/paul/Projects/Marketing-bot
+Environment=DISPLAY=:0
+ExecStart=/home/paul/Projects/Marketing-bot/run_random.sh

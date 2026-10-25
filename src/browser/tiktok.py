@@ -1,12 +1,21 @@
 import os
 import re
 import json
+import sys
 from pathlib import Path
+
+from montage.video import append_advertising_image
 
 
 class Tiktok:
     def __init__(self, context, app):
         self.app_name = app["appName"]
+        advertising_image = app.get("advertisingImage")
+        self.advertising_image = (
+            Path(advertising_image).expanduser().resolve()
+            if advertising_image
+            else None
+        )
         self.context = context
 
         self.timeout_ms = int(
@@ -49,36 +58,89 @@ class Tiktok:
             'button[aria-label="Upload"]'
         )
 
+    def _advertising_image(self):
+        if self.advertising_image is None:
+            raise ValueError(
+                f"No advertisingImage configured for {self.app_name}"
+            )
+        if not self.advertising_image.is_file():
+            raise FileNotFoundError(
+                f"Advertising image not found: {self.advertising_image}"
+            )
+        return self.advertising_image
+
+    def _wait_for_upload_page(self):
+        self.page.wait_for_url(
+            re.compile(r"/tiktokstudio/upload(?:/|\?|$)"),
+            timeout=self.timeout_ms,
+        )
+
+    def _wait_for_manual_login_if_needed(self):
+        """Pause an interactive run while TikTok's login modal is open."""
+
+        login_heading = self.page.get_by_text(
+            re.compile(r"^Log in to TikTok$", re.IGNORECASE)
+        ).last
+
+        try:
+            login_required = login_heading.is_visible(timeout=3000)
+        except Exception:
+            login_required = False
+
+        if not login_required:
+            return
+
+        message = (
+            "TikTok login is required. Complete the login in the Chromium "
+            "window, then return here."
+        )
+
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                f"{message} Run src/main.py once from an interactive terminal "
+                "so the browser profile can save the session."
+            )
+
+        print(f"\n{message}")
+        input("Press Enter after the login window has closed: ")
+
+        if login_heading.is_visible(timeout=1000):
+            raise RuntimeError(
+                "TikTok's login window is still open. Finish logging in "
+                "before pressing Enter."
+            )
+
     def _accept_cookies_if_present(self):
         """
-        Click TikTok's 'Accept All' cookies button if it appears.
+        Accept TikTok cookies if a banner appears on the current page.
         If there is no cookie banner, continue normally.
         """
 
-        try:
-            accept_button = self.page.get_by_role(
-                "button",
-                name="Accept All",
-                exact=True,
-            )
+        button_name = re.compile(
+            r"^(allow|accept) all(?: cookies)?$",
+            re.IGNORECASE,
+        )
 
-            accept_button.wait_for(
-                state="visible",
-                timeout=3000,
-            )
+        # The banner is normally in the main page, but checking every frame
+        # also covers TikTok moving its consent UI into an iframe.
+        for frame in self.page.frames:
+            try:
+                accept_button = frame.get_by_role(
+                    "button",
+                    name=button_name,
+                ).last
 
-            accept_button.click(
-                timeout=5000,
-            )
+                if not accept_button.is_visible(timeout=1000):
+                    continue
 
-            print("Accepted TikTok cookies")
+                accept_button.click(timeout=5000)
+                print("Accepted TikTok cookies")
+                self.page.wait_for_timeout(1000)
+                return True
+            except Exception:
+                continue
 
-            # Give TikTok a moment to remove the banner
-            self.page.wait_for_timeout(1000)
-
-        except Exception:
-            # Cookie banner isn't there
-            pass
+        return False
 
     def open(self):
         self.page.goto(
@@ -91,6 +153,8 @@ class Tiktok:
             state="visible",
             timeout=self.timeout_ms,
         )
+
+        self._wait_for_manual_login_if_needed()
 
     def add_music(self, music):
         if isinstance(music, str):
@@ -164,12 +228,24 @@ class Tiktok:
         description,
         hashtags,
     ):
+        video_path = append_advertising_image(
+            video_path,
+            self._advertising_image(),
+        )
+
+        self._wait_for_manual_login_if_needed()
+
         # Accept cookies if TikTok shows the banner
         self._accept_cookies_if_present()
 
         self._click_when_ready(
             self._upload_button()
         )
+
+        # TikTok can show a fresh consent banner after navigating from the
+        # home page to TikTok Studio.
+        self._wait_for_upload_page()
+        self._accept_cookies_if_present()
 
         select_video = self.page.get_by_text(
             "Select video",
@@ -256,6 +332,8 @@ class Tiktok:
         slides_path,
         data,
     ):
+        self._wait_for_manual_login_if_needed()
+
         # Accept cookies if TikTok shows the banner
         self._accept_cookies_if_present()
 
@@ -283,9 +361,18 @@ class Tiktok:
                 f"No photos found in {slides_path}"
             )
 
+        # Always upload the app-specific advertisement after every generated
+        # slide, regardless of its filename.
+        photos.append(str(self._advertising_image()))
+
         self._click_when_ready(
             self._upload_button()
         )
+
+        # TikTok can show a fresh consent banner after navigating from the
+        # home page to TikTok Studio.
+        self._wait_for_upload_page()
+        self._accept_cookies_if_present()
 
         photos_tab = self.page.get_by_role(
             "tab",
@@ -296,6 +383,8 @@ class Tiktok:
         self._click_when_ready(
             photos_tab
         )
+
+        self._accept_cookies_if_present()
 
         select_photos = self.page.get_by_text(
             "Select photos",

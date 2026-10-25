@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Marketing Bot once daily at a random daytime hour
+
+[Timer]
+OnCalendar=*-*-* 10:00:00
+RandomizedDelaySec=11h59m
+AccuracySec=1s
+Persistent=true
+Unit=marketing-bot.service
+
+[Install]
+WantedBy=timers.target

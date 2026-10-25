@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import json
 
 from AI.idea_history import recent_ideas, remember_idea
+from AI.audio_history import audio_was_used, recent_audio, remember_audio
 
 load_dotenv()
 
@@ -229,6 +230,15 @@ topic, viewer problem and narrative angle.
 
 
 def generate_slides(idea, app):
+    audio_history = recent_audio(app)
+    if audio_history:
+        previous_audio = "\n".join(
+            f'- "{entry.get("title", "")}" by {entry.get("artist", "")}'
+            for entry in audio_history
+        )
+    else:
+        previous_audio = "There is no previously used audio yet."
+
     prompt = f"""
 Create a complete TikTok/Reels-style IMAGE SLIDESHOW.
 
@@ -321,6 +331,10 @@ SOCIAL POST DATA:
 - include 3-5 relevant hashtags
 - choose one real, existing song that fits the slideshow mood
 - provide the exact song title and artist; do not invent a song
+- never choose a song from the PREVIOUSLY USED AUDIO list below
+
+PREVIOUSLY USED AUDIO:
+{previous_audio}
 
 
 Return ONLY valid JSON in exactly this structure:
@@ -350,6 +364,31 @@ Do not include ```json.
 Do not include explanations outside the JSON.
 """
 
-    slides = generate_response(prompt)
+    for attempt in range(3):
+        retry_instruction = ""
+        if attempt:
+            retry_instruction = (
+                "\nYour previous response selected audio that has already "
+                "been used. Return the complete JSON again with a different "
+                "real song and artist."
+            )
 
-    return json.loads(slides)
+        slides_data = json.loads(
+            generate_response(prompt + retry_instruction)
+        )
+        music = slides_data.get("music", {})
+        title = str(music.get("title", "")).strip()
+        artist = str(music.get("artist", "")).strip()
+
+        if not title or not artist:
+            raise ValueError(
+                "Generated slideshow music must include a title and artist"
+            )
+
+        if not audio_was_used(app, title, artist):
+            remember_audio(app, title, artist)
+            return slides_data
+
+    raise ValueError(
+        "Could not generate unused slideshow audio after 3 attempts"
+    )
