@@ -1,0 +1,15 @@
+[Unit]
+Description=Marketing Bot API and control website
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/paul/Projects/Marketing-bot
+Environment=PYTHONPATH=/home/paul/Projects/Marketing-bot/src
+ExecStart=/home/paul/Projects/Marketing-bot/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir /home/paul/Projects/Marketing-bot/src
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

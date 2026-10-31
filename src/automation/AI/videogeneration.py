@@ -9,10 +9,11 @@ from urllib.request import urlretrieve
 
 
 # Marketing-bot/.env
-ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 load_dotenv(ENV_PATH)
 
 MODEL = "fal-ai/kling-video/v3/turbo/standard/text-to-video"
+STORY_DURATION_SECONDS = "15"
 
 
 
@@ -26,7 +27,7 @@ def generate_video(video_data: dict, app: dict):
             "prompt": video_data["script"],
             "resolution": "1080p",
             "aspect_ratio": "9:16",
-            "duration": "15",
+            "duration": STORY_DURATION_SECONDS,
         },
     )
 

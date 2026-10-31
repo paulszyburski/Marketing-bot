@@ -1,0 +1,210 @@
+import subprocess
+import tempfile
+from pathlib import Path
+
+import imageio_ffmpeg
+from PIL import Image, ImageDraw, ImageFont
+
+
+DEFAULT_FADE_SECONDS = 0.5
+DEFAULT_HOLD_SECONDS = 2.0
+
+
+def _create_text_overlay(path: Path, text: str, width: int, height: int) -> None:
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    font_size = max(32, int(width * 0.07))
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        font_size,
+    )
+
+    words = text.split()
+    lines = []
+    current = ""
+    max_text_width = width * 0.78
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        box = draw.textbbox((0, 0), candidate, font=font)
+        if box[2] - box[0] <= max_text_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+
+    spacing = max(8, font_size // 5)
+    boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
+    text_height = sum(box[3] - box[1] for box in boxes) + spacing * (len(lines) - 1)
+    padding_x = font_size // 2
+    padding_y = font_size // 3
+    box_width = max(box[2] - box[0] for box in boxes) + padding_x * 2
+    box_height = text_height + padding_y * 2
+    left = (width - box_width) // 2
+    top = int(height * 0.12)
+    draw.rounded_rectangle(
+        (left, top, left + box_width, top + box_height),
+        radius=font_size // 3,
+        fill=(0, 0, 0, 205),
+    )
+    y = top + padding_y
+    for line, box in zip(lines, boxes):
+        line_width = box[2] - box[0]
+        line_height = box[3] - box[1]
+        draw.text(
+            ((width - line_width) / 2 - box[0], y - box[1]),
+            line,
+            font=font,
+            fill="white",
+            stroke_width=max(1, font_size // 30),
+            stroke_fill="black",
+        )
+        y += line_height + spacing
+    image.save(path)
+
+
+def _video_metadata(video_path: Path) -> dict:
+    reader = imageio_ffmpeg.read_frames(str(video_path))
+    try:
+        return next(reader)
+    finally:
+        reader.close()
+
+
+def _has_audio(ffmpeg: str, video_path: Path) -> bool:
+    probe = subprocess.run(
+        [ffmpeg, "-hide_banner", "-i", str(video_path)],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    return "Audio:" in probe.stderr
+
+
+def append_advertising_image(
+    video_path,
+    advertising_image,
+    fade_seconds=DEFAULT_FADE_SECONDS,
+    hold_seconds=DEFAULT_HOLD_SECONDS,
+    output_path=None,
+    text_overlays=None,
+):
+    """Crossfade a video into an app advertisement and hold the final image."""
+
+    video_path = Path(video_path).expanduser().resolve()
+    advertising_image = Path(advertising_image).expanduser().resolve()
+
+    if not video_path.is_file():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+    if not advertising_image.is_file():
+        raise FileNotFoundError(
+            f"Advertising image not found: {advertising_image}"
+        )
+
+    metadata = _video_metadata(video_path)
+    duration = float(metadata["duration"])
+    width, height = metadata["size"]
+    fps = max(round(float(metadata.get("fps") or 30)), 1)
+
+    if duration <= fade_seconds:
+        fade_seconds = max(duration / 2, 0.1)
+
+    fade_start = max(duration - fade_seconds, 0)
+    output_duration = duration + hold_seconds
+    output_path = (
+        Path(output_path).expanduser().resolve()
+        if output_path
+        else video_path.with_name(f"{video_path.stem}_with_ad.mp4")
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_name(
+        f"{output_path.stem}.tmp.mp4"
+    )
+
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    filter_parts = [
+        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},fps={fps},format=yuv420p,"
+        f"setpts=PTS-STARTPTS[ad]",
+        f"[0:v]fps={fps},format=rgba,setpts=PTS-STARTPTS,"
+        f"fade=t=out:st={fade_start}:d={fade_seconds}:alpha=1[video]",
+        f"[ad][video]overlay=eof_action=pass:shortest=0:format=auto,"
+        f"format=rgba[base]",
+    ]
+
+    command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path), "-loop", "1", "-framerate", str(fps), "-t", str(output_duration), "-i", str(advertising_image)]
+
+    valid_overlays = [
+        (str(text).strip(), float(start), float(end))
+        for text, start, end in (text_overlays or [])
+        if str(text or "").strip()
+    ]
+
+    with tempfile.TemporaryDirectory(prefix="marketing-bot-overlays-") as temp_dir:
+        for index, (text, start, end) in enumerate(valid_overlays, start=2):
+            overlay_path = Path(temp_dir) / f"overlay_{index}.png"
+            _create_text_overlay(overlay_path, text, width, height)
+            command.extend(["-loop", "1", "-i", str(overlay_path)])
+            input_label = "base" if index == 2 else f"overlayed{index - 1}"
+            output_label = "outv" if index == len(valid_overlays) + 1 else f"overlayed{index}"
+            filter_parts.append(
+                f"[{input_label}][{index}:v]overlay=0:0:"
+                f"enable='between(t,{start},{end})'[{output_label}]"
+            )
+
+        if not valid_overlays:
+            filter_parts.append("[base]format=yuv420p[outv]")
+        else:
+            filter_parts.append("[outv]format=yuv420p[finalv]")
+
+        video_output_label = "[finalv]" if valid_overlays else "[outv]"
+        command.extend(["-filter_complex", ";".join(filter_parts), "-map", video_output_label])
+
+        if _has_audio(ffmpeg, video_path):
+            command.extend(
+            [
+                "-map",
+                "0:a:0",
+                "-af",
+                (
+                    f"afade=t=out:st={fade_start}:d={fade_seconds},"
+                    f"apad=pad_dur={hold_seconds}"
+                ),
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+            ]
+            )
+
+        command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-r",
+            str(fps),
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            str(output_duration),
+            str(temporary_path),
+        ]
+        )
+
+        print(f"Creating advertising outro: {output_path}")
+        try:
+            subprocess.run(command, check=True)
+            temporary_path.replace(output_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+
+    return str(output_path)

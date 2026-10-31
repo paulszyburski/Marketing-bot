@@ -2,9 +2,10 @@ import os
 import re
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
-from montage.video import append_advertising_image
+from automation.montage.video import append_advertising_image
 
 
 class Tiktok:
@@ -35,13 +36,19 @@ class Tiktok:
             else context.new_page()
         )
 
-        self.TIKTOK_EMAIL = os.getenv(
-            f"{self.app_name.upper()}_TIKTOK_EMAIL"
-        )
+        # Prefer the stable app id for environment-variable names.  Falling
+        # back to appName keeps older app definitions working.  Non-alphanumeric
+        # characters are converted to underscores so the result is a valid
+        # shell variable name (for example, "My App" becomes "MY_APP").
+        credential_name = app.get("id") or self.app_name
+        credential_prefix = re.sub(
+            r"[^A-Z0-9]+",
+            "_",
+            credential_name.upper(),
+        ).strip("_")
 
-        self.TIKTOK_PASSWORD = os.getenv(
-            f"{self.app_name.upper()}_TIKTOK_PASSWORD"
-        )
+        self.TIKTOK_EMAIL = os.getenv(f"{credential_prefix}_EMAIL")
+        self.TIKTOK_PASSWORD = os.getenv(f"{credential_prefix}_PASSWORD")
 
     def _click_when_ready(self, locator):
         locator.wait_for(
@@ -75,6 +82,113 @@ class Tiktok:
             timeout=self.timeout_ms,
         )
 
+    def _visible_dialog(self):
+        dialogs = self.page.locator('[role="dialog"]')
+        for index in range(dialogs.count() - 1, -1, -1):
+            dialog = dialogs.nth(index)
+            try:
+                if dialog.is_visible(timeout=500):
+                    return dialog
+            except Exception:
+                continue
+        return None
+
+    def _clear_upload_dialog(self):
+        """Wait for processing dialogs and close safe leftover upload modals."""
+
+        dialog = self._visible_dialog()
+        if dialog is None:
+            return
+
+        try:
+            dialog_text = " ".join(dialog.inner_text(timeout=3000).split())
+        except Exception:
+            dialog_text = "<dialog text unavailable>"
+        print(f"TikTok blocking dialog: {dialog_text[:500]}")
+
+        # This optional account-setting prompt appears after a successful file
+        # selection. Decline it so the upload can continue without changing the
+        # user's automatic content-check preference.
+        if re.search(r"turn on automatic content checks", dialog_text, re.I):
+            cancel_button = dialog.get_by_role(
+                "button",
+                name=re.compile(r"^cancel$", re.I),
+            ).last
+            cancel_button.click(timeout=5000)
+            dialog.wait_for(state="hidden", timeout=10000)
+            print("Declined optional automatic content checks")
+            return
+
+        # Processing dialogs should finish by themselves. Give video processing
+        # longer than the normal element timeout before attempting recovery.
+        if re.search(r"uploading|processing|checking|preparing", dialog_text, re.I):
+            try:
+                dialog.wait_for(state="hidden", timeout=max(self.timeout_ms, 180_000))
+                print("TikTok upload-processing dialog closed")
+                return
+            except Exception:
+                pass
+
+        safe_button = dialog.get_by_role(
+            "button",
+            name=re.compile(r"^(close|done|got it|not now|continue)$", re.I),
+        ).last
+        try:
+            if safe_button.is_visible(timeout=1500):
+                safe_button.click(timeout=5000)
+                dialog.wait_for(state="hidden", timeout=10000)
+                print("Closed TikTok blocking dialog")
+                return
+        except Exception:
+            pass
+
+        # TikTok's upload-choice modal is dismissible with Escape after the
+        # selected file has already been handed to the browser.
+        self.page.keyboard.press("Escape")
+        try:
+            dialog.wait_for(state="hidden", timeout=10000)
+            print("Dismissed TikTok blocking dialog with Escape")
+            return
+        except Exception as exc:
+            raise RuntimeError(
+                f"TikTok dialog still blocks the upload form: {dialog_text[:500]}"
+            ) from exc
+
+    def _dismiss_tutorial_overlay(self):
+        overlay = self.page.locator('[data-test-id="overlay"]').last
+        try:
+            if not overlay.is_visible(timeout=1500):
+                return False
+        except Exception:
+            return False
+
+        got_it = self.page.get_by_role(
+            "button",
+            name=re.compile(r"^got it$", re.I),
+        ).last
+        got_it.click(timeout=5000)
+        overlay.wait_for(state="hidden", timeout=10000)
+        print("Dismissed TikTok editing-features tutorial")
+        return True
+
+    def save_debug_artifacts(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path("data") / self.app_name / "browser_debug"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = output_dir / f"failure_{timestamp}.png"
+        html_path = output_dir / f"failure_{timestamp}.html"
+
+        try:
+            self.page.screenshot(path=str(screenshot_path), full_page=True)
+            print(f"Saved browser failure screenshot: {screenshot_path}")
+        except Exception as exc:
+            print(f"Could not save browser failure screenshot: {exc}")
+        try:
+            html_path.write_text(self.page.content(), encoding="utf-8")
+            print(f"Saved browser failure HTML: {html_path}")
+        except Exception as exc:
+            print(f"Could not save browser failure HTML: {exc}")
+
     def _wait_for_manual_login_if_needed(self):
         """Pause an interactive run while TikTok's login modal is open."""
 
@@ -97,7 +211,7 @@ class Tiktok:
 
         if not sys.stdin.isatty():
             raise RuntimeError(
-                f"{message} Run src/main.py once from an interactive terminal "
+                f"{message} Run automation.main from an interactive terminal "
                 "so the browser profile can save the session."
             )
 
@@ -109,6 +223,18 @@ class Tiktok:
                 "TikTok's login window is still open. Finish logging in "
                 "before pressing Enter."
             )
+
+    def _is_logged_out(self):
+        login_button = self.page.locator(
+            '[data-e2e="top-login-button"]'
+        ).first
+        try:
+            return (
+                login_button.is_visible(timeout=3000)
+                or "/login" in self.page.url
+            )
+        except Exception:
+            return "/login" in self.page.url
 
     def _accept_cookies_if_present(self):
         """
@@ -149,12 +275,59 @@ class Tiktok:
             timeout=self.timeout_ms,
         )
 
+        self._accept_cookies_if_present()
+
+        if self._is_logged_out():
+            print(
+                f"The saved browser profile for {self.app_name} is not "
+                "logged in yet."
+            )
+            self.login_manually()
+            self.page.goto(
+                "https://www.tiktok.com/",
+                wait_until="domcontentloaded",
+                timeout=self.timeout_ms,
+            )
+            if self._is_logged_out():
+                raise RuntimeError(
+                    f"TikTok login was not saved for {self.app_name}."
+                )
+        else:
+            print(
+                f"Using the saved TikTok session for {self.app_name}."
+            )
+
         self._upload_button().wait_for(
             state="visible",
             timeout=self.timeout_ms,
         )
 
-        self._wait_for_manual_login_if_needed()
+    def login_manually(self):
+        """Open TikTok and keep Chromium running until login is complete."""
+
+        self.page.goto(
+            "https://www.tiktok.com/login",
+            wait_until="domcontentloaded",
+            timeout=self.timeout_ms,
+        )
+        self._accept_cookies_if_present()
+
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Manual login requires an interactive terminal."
+            )
+
+        print(
+            f"\nLog in to TikTok for {self.app_name} in the Chromium window."
+        )
+        if self.TIKTOK_EMAIL:
+            print(f"Configured email: {self.TIKTOK_EMAIL}")
+        else:
+            print(
+                "No app email is configured; enter the account details "
+                "directly in Chromium."
+            )
+        input("Press Enter here after login is complete: ")
 
     def add_music(self, music):
         if isinstance(music, str):
@@ -228,9 +401,23 @@ class Tiktok:
         description,
         hashtags,
     ):
+        source_path = Path(video_path)
+        text_overlays = None
+        metadata_path = source_path.with_suffix(".json")
+        if metadata_path.is_file():
+            try:
+                video_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                text_overlays = [
+                    (video_metadata.get("hookText"), 0.0, 2.8),
+                    (video_metadata.get("benefitText"), 6.0, 10.5),
+                ]
+            except (OSError, json.JSONDecodeError):
+                text_overlays = None
+
         video_path = append_advertising_image(
             video_path,
             self._advertising_image(),
+            text_overlays=text_overlays,
         )
 
         self._wait_for_manual_login_if_needed()
@@ -274,6 +461,8 @@ class Tiktok:
         self.page.wait_for_timeout(
             self.settle_ms
         )
+        self._clear_upload_dialog()
+        self._dismiss_tutorial_overlay()
 
         caption_box = self.page.locator(
             'div[contenteditable="true"][role="combobox"]'
@@ -417,6 +606,9 @@ class Tiktok:
         self.add_music(
             slides_data["music"]
         )
+
+        self._clear_upload_dialog()
+        self._dismiss_tutorial_overlay()
 
         caption_box = self.page.locator(
             'div[contenteditable="true"][role="combobox"]'

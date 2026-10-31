@@ -22,26 +22,71 @@ cp apps.example.json data/apps.json
 Fill in `.env` and `data/apps.json`. Both files are intentionally excluded from
 Git because they contain secrets or machine-specific configuration.
 
+Set `API_PASSWORD` in `.env` before starting the API. Every endpoint, including
+the interactive documentation, uses HTTP Basic authentication with username
+`admin` and this password.
+
 Store one promotional image per app at
 `assets/advertising/<app-id>/advertisement.png`, and set its path in the app's
 `advertisingImage` field in `data/apps.json`.
 
+Store real app screenshots used as in-slideshow proof at
+`assets/proof/<app-id>/`. Supported formats are JPG, PNG, and WebP. You can
+override the directory per app with `proofAssetsPath` in `data/apps.json`.
+When screenshots are present, generated slides follow a hook → problem →
+solution → screenshot proof → CTA arc. Each post randomly uses one of these
+styles: POV, storytelling, before and after, tutorial, comparison, or
+curiosity driven.
+
 The uploader automatically adds this image as the final slideshow photo. For
 video posts, it creates a sibling `<video-name>_with_ad.mp4`, fades the final
-0.5 seconds into the image, and holds the image for another 2 seconds.
+0.5 seconds into the image, and holds the image for another 2 seconds. Video
+generation is structured as a 15-second hook/problem/demo/payoff story followed
+by this 2-second real-UI branded card, for approximately 17 seconds total.
 
-Call `test_video_montage()` in `src/main.py` to generate a completely new AI
+Runs started from the control website expose their latest output in the
+authenticated **Debug log** panel. The panel refreshes every three seconds.
+Chromium automatically uses headless mode when the API service has no graphical
+`DISPLAY`; set `BROWSER_HEADLESS=false` only when that service has access to a
+desktop session and a visible browser is required.
+
+If TikTok blocks or changes its upload interface, the runner records a full-page
+screenshot and HTML snapshot under `data/<AppName>/browser_debug/`. Upload
+processing dialogs are allowed up to three minutes to finish; safe confirmation
+dialogs are then closed before the caption and posting steps continue.
+
+Call `test_video_montage()` in `src/utils.py` to generate a completely new AI
 video, create its advertising montage, and save both locally without uploading.
 The preview is saved under `data/<AppName>/montage_previews/`.
 
 Run it once from the Pi desktop before scheduling it:
 
 ```bash
-.venv/bin/python src/main.py
+PYTHONPATH=src .venv/bin/python -m automation.main
 ```
 
-Log in to TikTok in the Chromium window if required. The login is retained in
-the app's `profilePath`.
+To choose an app and log in to its TikTok account manually, call
+`login_manually()` from `src/automation/main.py`. For example:
+
+```bash
+PYTHONPATH=src .venv/bin/python -c "from automation.main import login_manually; login_manually()"
+```
+
+Select the app number, complete the login in Chromium, and then press Enter in
+the terminal. The login is retained in that app's `profilePath`. Credentials in
+`.env` use the upper-case app `id`, for example `DRIVEPROOF_EMAIL` and
+`DRIVEPROOF_PASSWORD`. Add a separate pair for every app.
+
+To test the full generation flow without uploading anything,
+call `run_test_pipeline()` from `src/automation/utils.py`:
+
+```bash
+PYTHONPATH=src .venv/bin/python -c "from automation.utils import run_test_pipeline; run_test_pipeline('data/apps.json')"
+```
+
+Choose an app when prompted. The test uses the same 10% video / 90% slideshow
+selection as a live run, prints the completed local preview path, and opens
+TikTok with that app's saved profile to verify login. It never starts an upload.
 
 ## Scheduled runs
 
@@ -65,7 +110,8 @@ set -euo pipefail
 readonly PROJECT_DIR="/home/paul/Projects/Marketing-bot"
 
 cd "$PROJECT_DIR"
-exec "$PROJECT_DIR/.venv/bin/python" src/main.py
+exec env PYTHONPATH="$PROJECT_DIR/src" \
+    "$PROJECT_DIR/.venv/bin/python" -m automation.main
 ```
 
 Make it executable:
@@ -79,28 +125,31 @@ chmod +x run.sh
 The repository contains two systemd configuration files:
 
 - `systemd/marketing-bot.service` — starts the Python script.
-- `systemd/marketing-bot.timer` — schedules daily execution.
+- `systemd/marketing-bot.timer` — schedules execution twice daily.
 
 Ensure `marketing-bot.timer` contains:
 
 ```ini
 [Unit]
-Description=Run Marketing Bot Once Daily at a Random Time
+Description=Run Marketing Bot twice daily at random times
 
 [Timer]
-OnCalendar=*-*-* 10:00:00
-RandomizedDelaySec=12h
-AccuracySec=1min
-Persistent=false
+OnCalendar=*-*-* 06:00:00
+OnCalendar=*-*-* 18:00:00
+RandomizedDelaySec=5h59m
+AccuracySec=1s
+Persistent=true
 Unit=marketing-bot.service
 
 [Install]
 WantedBy=timers.target
 ```
 
-Every day at 10:00 AM, systemd selects a random delay of up to 12 hours.
+Every day, systemd schedules one run between 6:00 AM and noon and another
+between 6:00 PM and midnight.
 
-`Persistent=false` prevents the timer from immediately catching up on missed executions after the system was offline.
+`Persistent=true` allows a missed execution to run when the system comes back
+online.
 
 ### 3. Install and enable the timer
 

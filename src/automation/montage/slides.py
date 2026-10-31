@@ -1,14 +1,10 @@
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
-import os
 
 
-def mend_text_and_image(image_url, text):
-    response = requests.get(image_url, timeout=20)
-    response.raise_for_status()
-
-    image = Image.open(BytesIO(response.content)).convert("RGB")
+def add_text_to_image(image, text):
+    image = image.convert("RGB")
     draw = ImageDraw.Draw(image)
 
     # Much smaller, TikTok-like text
@@ -125,6 +121,14 @@ def mend_text_and_image(image_url, text):
         current_y += box_height + line_gap
 
     return image
+
+
+def mend_text_and_image(image_url, text):
+    response = requests.get(image_url, timeout=20)
+    response.raise_for_status()
+
+    image = Image.open(BytesIO(response.content))
+    return add_text_to_image(image, text)
 
 
 def mend_texts_and_images(image_urls, texts):

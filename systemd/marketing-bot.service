@@ -7,4 +7,4 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/paul/Projects/Marketing-bot
 Environment=DISPLAY=:0
-ExecStart=/home/paul/Projects/Marketing-bot/run_random.sh
+ExecStart=/home/paul/Projects/Marketing-bot/run.sh

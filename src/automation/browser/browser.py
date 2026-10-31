@@ -26,6 +26,8 @@ class Browser:
             exist_ok=True
         )
 
+        print(f"Opening Chromium profile: {self.profile_path}")
+
         executable = os.getenv("BROWSER_EXECUTABLE")
         if executable:
             executable = shutil.which(executable) or executable
@@ -45,14 +47,26 @@ class Browser:
                 "in .env to its full path."
             )
 
-        self.chrome = subprocess.Popen([
+        headless_setting = os.getenv("BROWSER_HEADLESS", "auto").casefold()
+        headless = (
+            headless_setting in {"1", "true", "yes"}
+            or (headless_setting == "auto" and not os.getenv("DISPLAY"))
+        )
+        browser_mode = "headless" if headless else "headed"
+        print(f"Launching Chromium in {browser_mode} mode")
+
+        command = [
             executable,
             f"--remote-debugging-port={self.port}",
             f"--user-data-dir={self.profile_path}",
             "--no-first-run",
             "--no-default-browser-check",
-            "about:blank"
-        ])
+        ]
+        if headless:
+            command.extend(["--headless=new", "--disable-gpu"])
+        command.append("about:blank")
+
+        self.chrome = subprocess.Popen(command)
 
         self.wait_until_ready()
 

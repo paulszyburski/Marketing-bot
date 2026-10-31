@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Bot</title>
+    <link rel="stylesheet" href="/website/static/styles.css?v=8">
+    <script src="/website/static/app.js?v=7" defer></script>
+  </head>
+  <body>
+    <main>
+      <section id="login-view">
+        <h1>Marketing Bot</h1>
+        <p>Enter your password.</p>
+        <form id="login-form">
+          <label for="password">Password</label>
+          <div class="password-row">
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button id="toggle-password" type="button">Show</button>
+          </div>
+          <p id="login-error" class="error" role="alert" hidden></p>
+          <button type="submit">Log in</button>
+        </form>
+      </section>
+
+      <section id="dashboard-view" hidden>
+        <header>
+          <h1>Marketing Bot</h1>
+          <button id="logout-button" type="button">Log out</button>
+        </header>
+
+        <section class="panel">
+          <h2>Automation</h2>
+          <p>
+            Status:
+            <span id="status-dot" class="status-dot idle" aria-hidden="true"></span>
+            <strong id="run-status">Loading…</strong>
+          </p>
+          <p id="run-details">Checking the latest run.</p>
+          <p>Next automatic run: <strong id="next-auto-run">Checking…</strong></p>
+          <div class="buttons">
+            <button id="run-button" type="button">Run automation</button>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+          <p id="action-message" role="status"></p>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="section-title">
+            <h2>Debug log</h2>
+            <button id="refresh-logs-button" type="button">Refresh logs</button>
+          </div>
+          <p id="log-note" class="log-note">Latest website-triggered runner output.</p>
+          <pre id="debug-log" aria-live="polite">Loading logs…</pre>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <h2>Apps</h2>
+            <button id="reload-apps-button" type="button">Reload</button>
+          </div>
+          <div id="apps-list" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
