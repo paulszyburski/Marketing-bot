@@ -2,13 +2,15 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
 
+from automation.montage.branding import add_google_play_badge
+
 
 def add_text_to_image(image, text):
     image = image.convert("RGB")
     draw = ImageDraw.Draw(image)
 
-    # Much smaller, TikTok-like text
-    font_size = max(18, int(image.width * 0.045))
+    # Large, high-contrast short-form caption text.
+    font_size = max(24, int(image.width * 0.058))
 
     font = ImageFont.truetype(
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -47,11 +49,7 @@ def add_text_to_image(image, text):
     # SIZE EACH LINE
     # -------------------------
 
-    padding_x = max(8, int(font_size * 0.35))
-    padding_y = max(4, int(font_size * 0.18))
-
-    line_gap = max(2, int(font_size * 0.08))
-    radius = max(5, int(font_size * 0.22))
+    line_gap = max(5, int(font_size * 0.18))
 
     line_data = []
     total_height = 0
@@ -62,17 +60,14 @@ def add_text_to_image(image, text):
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        box_height = text_height + padding_y * 2
-
         line_data.append({
             "text": line,
             "bbox": bbox,
             "width": text_width,
             "height": text_height,
-            "box_height": box_height
         })
 
-        total_height += box_height
+        total_height += text_height
 
     total_height += line_gap * (len(lines) - 1)
 
@@ -84,43 +79,22 @@ def add_text_to_image(image, text):
     current_y = (image.height - total_height) / 2
 
     for line in line_data:
-        box_width = line["width"] + padding_x * 2
-        box_height = line["box_height"]
-
-        left = center_x - box_width / 2
-        right = center_x + box_width / 2
-
-        top = current_y
-        bottom = current_y + box_height
-
-        # White TikTok-style background
-        draw.rounded_rectangle(
-            (left, top, right, bottom),
-            radius=radius,
-            fill="white"
-        )
-
         bbox = line["bbox"]
-
-        # Actual rendered text centered inside box
         text_x = center_x - line["width"] / 2 - bbox[0]
-
-        text_y = (
-            top
-            + (box_height - line["height"]) / 2
-            - bbox[1]
-        )
+        text_y = current_y - bbox[1]
 
         draw.text(
             (text_x, text_y),
             line["text"],
             font=font,
-            fill="black"
+            fill="black",
+            stroke_width=max(3, int(font_size * 0.11)),
+            stroke_fill="white",
         )
 
-        current_y += box_height + line_gap
+        current_y += line["height"] + line_gap
 
-    return image
+    return add_google_play_badge(image).convert("RGB")
 
 
 def mend_text_and_image(image_url, text):

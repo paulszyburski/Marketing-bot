@@ -14,6 +14,48 @@ from automation.AI.audio_history import (
 load_dotenv()
 
 
+VAGUE_MARKETING_PHRASES = (
+    "game changer",
+    "changes everything",
+    "next level",
+    "peace of mind",
+    "protect what matters",
+    "never worry again",
+    "solution you need",
+    "easier than ever",
+    "when it matters",
+    "stay organized",
+    "take control",
+    "made simple",
+    "work smarter",
+    "you need this",
+    "thank me later",
+    "unlock",
+    "empower",
+    "seamless",
+    "revolutionize",
+    "betray you",
+    "is lying",
+    "hiding there",
+)
+
+
+def _short_copy_error(text, label, minimum=2, maximum=10):
+    """Return a reason when short-form copy is too vague or too long."""
+    normalized = " ".join(str(text).split())
+    word_count = len(normalized.split())
+    if not minimum <= word_count <= maximum:
+        return f"{label} must contain {minimum}-{maximum} words"
+    lowered = normalized.casefold()
+    vague_phrase = next(
+        (phrase for phrase in VAGUE_MARKETING_PHRASES if phrase in lowered),
+        None,
+    )
+    if vague_phrase:
+        return f'{label} uses vague marketing phrase "{vague_phrase}"'
+    return None
+
+
 def generate_response(prompt):
     api_key = os.getenv("CHATGPT_API_KEY")
 
@@ -138,6 +180,15 @@ The video may include:
 
 Use audio deliberately to make the video more engaging.
 
+COPY STYLE:
+- use extremely simple everyday language; a 12-year-old should get it instantly
+- be blunt, direct, emotionally charged and curiosity-heavy
+- write like high-retention TikTok "slop," not a polished brand campaign
+- hook a specific fear, mistake, annoyance, embarrassing moment or desired result
+- make every line concrete enough that it could not describe 100 unrelated apps
+- fragments and punchy spoken language are good; corporate copy is forbidden
+- provocative is good, but never invent facts, guarantees or fake urgency
+
 CLARITY RULES:
 - a viewer must understand the video without knowing anything about the app
 - clearly establish the exact real-world situation and problem
@@ -199,15 +250,18 @@ Use a concrete benefit-led call to action, not a vague awareness caption.
 Create two short strings as METADATA for reliable post-production rendering.
 They must not appear or be requested anywhere inside the generated footage or
 timed script:
-- "hookText": 2-6 words stating the specific opening hook
-- "benefitText": 2-6 words stating the concrete app benefit
+- "hookText": 4-8 blunt words naming the specific pain or surprising mistake
+- "benefitText": 4-8 blunt words naming the exact app action or result
+- both must make sense with no context and use simple everyday words
+- banned filler includes: game changer, peace of mind, stay organized, take
+  control, when it matters, made simple, unlock, seamless, and next level
 
 Return ONLY valid JSON:
 
 {{
     "script": "full timed video-generation prompt",
-    "hookText": "2-6 word opening hook",
-    "benefitText": "2-6 word app benefit",
+    "hookText": "4-8 word opening hook",
+    "benefitText": "4-8 word app benefit",
     "description": "short social media description",
     "hashtags": ["#tag1", "#tag2", "#tag3"]
 }}
@@ -223,15 +277,17 @@ Return ONLY valid JSON:
             print(f"Video-script attempt {attempt + 1} rejected: {last_error}")
             continue
 
-        hook_words = str(video_data.get("hookText", "")).split()
-        benefit_words = str(video_data.get("benefitText", "")).split()
+        hook_text = str(video_data.get("hookText", "")).strip()
+        benefit_text = str(video_data.get("benefitText", "")).strip()
+        hook_error = _short_copy_error(hook_text, "hookText", 4, 8)
+        benefit_error = _short_copy_error(benefit_text, "benefitText", 4, 8)
         hashtags = video_data.get("hashtags")
         if not str(video_data.get("script", "")).strip():
             last_error = "script is missing"
-        elif not 2 <= len(hook_words) <= 6:
-            last_error = "hookText must contain 2-6 words"
-        elif not 2 <= len(benefit_words) <= 6:
-            last_error = "benefitText must contain 2-6 words"
+        elif hook_error:
+            last_error = hook_error
+        elif benefit_error:
+            last_error = benefit_error
         elif not str(video_data.get("description", "")).strip():
             last_error = "description is missing"
         elif not isinstance(hashtags, list) or not 3 <= len(hashtags) <= 5:
@@ -257,25 +313,39 @@ Come up with ONE strong slideshow concept.
 CONTENT STYLE: {content_style}
 Commit fully to this style. The concept and hook must feel native to it.
 
-The slideshow should NOT feel like an advertisement at the beginning.
+The slideshow must feel like native, high-retention TikTok content—not a
+polished advertisement. Clarity matters more than sounding clever. The viewer
+must understand the exact situation on slide 1 and what the app does by the
+first solution slide.
 
 Use this structure:
 
 1. Start with a very strong hook that stops scrolling.
-2. Give useful, interesting or relatable information.
-3. Build curiosity from slide to slide.
-4. Naturally connect the topic to the problem the app solves.
-5. Only near the end introduce the app as the solution.
+2. State the specific painful consequence in a complete thought.
+3. Build curiosity with concrete information, not vague teasing.
+4. Name the app in solution 1 and show the exact action it enables.
+5. Name the app clearly in the final CTA.
 
 HOOK RULES:
 - the hook should be understandable in less than 1 second
-- usually 4-10 words
+- 6-11 words: enough context to understand it immediately
 - focus on the viewer, not the app
-- create curiosity or an information gap
+- create curiosity using a specific mistake, fear, cost or desired result
 - do not reveal the whole answer immediately
 - avoid generic hooks like "5 tips for..."
-- avoid fake clickbait like "THIS CHANGES EVERYTHING"
+- sound blunt and provocative, but never invent facts or guarantees
 - make the viewer want to swipe to slide 2
+
+VOICE RULES:
+- use words a 12-year-old understands immediately
+- write like effective TikTok "slop": direct, dramatic, casual and easy to scan
+- one complete, natural thought per line; do not write cryptic fragments
+- no poetic language, soft brand language, jargon or corporate polish
+- do not use metaphors like "your scan betrays you" or "your food is lying"
+- provocative must come from a real consequence, not mysterious wording
+- never use filler such as "peace of mind," "game changer," "take control,"
+  "when it matters," "stay organized," "made simple" or "next level"
+- if a line could advertise 100 unrelated apps, it is too vague
 
 Return only a short description of the slideshow concept.
 
@@ -294,6 +364,110 @@ topic, viewer problem and narrative angle.
     )
 
 
+def generate_and_select_hook(idea, app, content_style):
+    """Generate several hooks, then use a separate pass to select the best."""
+    generation_prompt = f"""
+Generate exactly 6 genuinely different opening hooks for a short-form image
+slideshow.
+
+APP:
+{app}
+
+CONCEPT:
+{idea}
+
+STYLE: {content_style}
+
+Each candidate must:
+- contain 6-11 words
+- make the exact real-world situation clear with no prior context
+- use simple, natural language a 12-year-old understands
+- create curiosity through a specific consequence, mistake, fear or result
+- be provocative because the situation is strong, not because wording is vague
+- avoid naming the app; the first solution slide introduces it
+- avoid cryptic metaphors, corporate language, fake urgency and guarantees
+- use a concrete 2-6 word image query showing the exact situation
+
+The six hooks must use meaningfully different angles, not paraphrases.
+
+Return ONLY valid JSON:
+{{
+  "hooks": [
+    {{"text": "...", "imageQuery": "..."}}
+  ]
+}}
+"""
+
+    candidates = None
+    last_error = "unknown hook-generation error"
+    for attempt in range(3):
+        retry = "" if attempt == 0 else f"\nFix this problem: {last_error}."
+        try:
+            response = json.loads(generate_response(generation_prompt + retry))
+            hooks = response.get("hooks")
+        except (json.JSONDecodeError, TypeError) as exc:
+            last_error = f"invalid JSON ({exc})"
+            continue
+        if not isinstance(hooks, list) or len(hooks) != 6:
+            last_error = "expected exactly 6 hooks"
+            continue
+        if not all(
+            isinstance(hook, dict)
+            and str(hook.get("text", "")).strip()
+            and str(hook.get("imageQuery", "")).strip()
+            for hook in hooks
+        ):
+            last_error = "every hook needs text and imageQuery"
+            continue
+        errors = [
+            _short_copy_error(hook["text"], f"hook {index}", 6, 11)
+            for index, hook in enumerate(hooks, start=1)
+        ]
+        if any(errors):
+            last_error = next(error for error in errors if error)
+            continue
+        if len({hook["text"].strip().casefold() for hook in hooks}) != 6:
+            last_error = "hook candidates must be unique"
+            continue
+        candidates = hooks
+        break
+
+    if candidates is None:
+        raise ValueError(f"Could not generate hook candidates: {last_error}")
+
+    judging_prompt = f"""
+Act as a ruthless short-form retention editor. Select the single strongest hook
+for this app and concept.
+
+APP: {app['appName']} — {app.get('appDescription', '')}
+CONCEPT: {idea}
+CANDIDATES:
+{json.dumps(candidates, ensure_ascii=False, indent=2)}
+
+Score each candidate from 1-10 on:
+1. instant clarity with no context
+2. specificity of the situation and consequence
+3. emotional or curiosity pull
+4. how well the proposed image proves the words
+5. how naturally the next slide can introduce the app
+
+Reject clever-sounding ambiguity. Clarity outranks shock value. Return ONLY
+valid JSON with the 1-based winning index and a short reason:
+{{"winner": 1, "reason": "..."}}
+"""
+    try:
+        decision = json.loads(generate_response(judging_prompt))
+        winner = int(decision["winner"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Could not score hook candidates: {exc}") from exc
+    if not 1 <= winner <= len(candidates):
+        raise ValueError(f"Hook winner index is out of range: {winner}")
+
+    selected = candidates[winner - 1]
+    print(f"Selected hook {winner}/6: {selected['text']}")
+    return selected
+
+
 def generate_slides(idea, app, content_style, proof_filenames):
     proof_filename = (
         random.SystemRandom().choice(proof_filenames)
@@ -301,6 +475,7 @@ def generate_slides(idea, app, content_style, proof_filenames):
         else None
     )
     solution_count = 2 if proof_filename else 3
+    selected_hook = generate_and_select_hook(idea, app, content_style)
 
     content_prompt = f"""
 Write the slide COPY for one TikTok/Reels image slideshow.
@@ -314,15 +489,22 @@ IDEA:
 STYLE:
 {content_style}
 
+PRESELECTED HOOK:
+{json.dumps(selected_hook, ensure_ascii=False)}
+
+The hook was selected from six candidates by a separate retention-scoring pass.
+Copy its text and imageQuery exactly. Do not rewrite or replace it.
+
 This is only the copywriting step. Python will put the slides in the correct
 order and attach the images. Do not choose stage names or image-source types.
 
 Write exactly:
-- one hook that is clear in under one second and does not name the app
-- one specific problem and its consequence
-- exactly {solution_count} solution steps that deliver the hook's payoff
-{f'- one proof caption describing what the real screenshot named {proof_filename!r} demonstrates' if proof_filename else ''}
-- one natural app CTA that connects the solution back to the problem
+- one 6-11 word hook that clearly states the situation and does not name the app
+- one 7-14 word problem that clearly states the real consequence
+- exactly {solution_count} solution steps of 7-14 words each; solution 1 must
+  name {app['appName']} and plainly explain its core action
+{f'- one 7-14 word proof caption that naturally states the benefit visible in the real image named {proof_filename!r}; never say "screenshot," "screen," "image," or "demonstrates"' if proof_filename else ''}
+- one 7-14 word CTA naming {app['appName']} and giving one clear action
 
 For the hook, problem, solutions, and CTA, include a concrete 2-6 word Pinterest
 query. Queries describe visible people, objects, actions, or places. They must
@@ -330,11 +512,31 @@ not request UI, screenshots, text, logos, or abstract concepts.
 
 COPY RULES:
 - assume the viewer has never heard of the app
-- keep each line conversational, ideally 6-14 words
-- make the practical action and benefit specific
+- never optimize for the fewest words; missing context is worse than length
+- hook: 6-11 words; every other slide: 7-14 words
+- use extremely simple words and one idea per slide
+- be provocative, blunt, casual and emotionally sharp
+- hook a specific mistake, fear, annoyance, cost or desired result
+- make every solution say exactly what the person does
+- name {app['appName']} in solution 1, not only at the end
+- make the CTA name {app['appName']} and state exactly what it does
+- every line must make sense without reading the generation prompt
+- if a line could fit 100 unrelated apps, rewrite it
+- use natural spoken sentences; cryptic fragments and slogan fragments are bad
+- do not force drama with metaphors such as "betray," "lying," or "hiding"
+- each slide must logically answer or advance the previous slide
 - do not make unsupported claims
 - no hashtags and no corporate language
+- never use vague filler such as "peace of mind," "game changer," "take
+  control," "when it matters," "stay organized," "made simple," "unlock,"
+  "seamless," "you need this" or "next level"
 - commit fully to the {content_style} style
+
+TONE EXAMPLES (copy the directness, not the wording):
+- BAD: "Crouch at pickup" / GOOD: "This rental angle catches scratches most people miss"
+- BAD: "Your scan can betray you" / GOOD: "One missed ingredient can ruin every meal suggestion"
+- BAD: "Check the list before recipes" / GOOD: "Check What2Cook's ingredient list before choosing your meal"
+- BAD: "Screenshot shows editable ingredients" / GOOD: "Fix missing ingredients before What2Cook suggests your meals"
 
 Return ONLY valid JSON:
 {{
@@ -383,8 +585,58 @@ Do not include markdown or explanations.
             for card in required_cards + solutions
         ):
             last_content_error = "a slide is missing text or imageQuery"
+        elif (
+            str(candidate["hook"]["text"]).strip() != selected_hook["text"].strip()
+            or str(candidate["hook"]["imageQuery"]).strip()
+            != selected_hook["imageQuery"].strip()
+        ):
+            last_content_error = "hook must exactly match the preselected hook"
         elif proof_filename and not str(candidate.get("proofText", "")).strip():
             last_content_error = "proofText is missing"
+        elif (first_solution_text := str(solutions[0]["text"])) and app[
+            "appName"
+        ].casefold() not in first_solution_text.casefold():
+            last_content_error = f"solution 1 must name {app['appName']}"
+        elif (hook_error := _short_copy_error(
+            candidate["hook"]["text"], "hook", 6, 11
+        )):
+            last_content_error = hook_error
+        elif next(
+            (
+                error
+                for label, text in [
+                    ("problem", candidate["problem"]["text"]),
+                    *(
+                        (f"solution {index}", solution["text"])
+                        for index, solution in enumerate(solutions, start=1)
+                    ),
+                    *([("proof", candidate["proofText"])] if proof_filename else []),
+                    ("CTA", candidate["cta"]["text"]),
+                ]
+                if (error := _short_copy_error(text, label, 7, 14))
+            ),
+            None,
+        ) is not None:
+            last_content_error = next(
+                error
+                for label, text in [
+                    ("problem", candidate["problem"]["text"]),
+                    *(
+                        (f"solution {index}", solution["text"])
+                        for index, solution in enumerate(solutions, start=1)
+                    ),
+                    *([("proof", candidate["proofText"])] if proof_filename else []),
+                    ("CTA", candidate["cta"]["text"]),
+                ]
+                if (error := _short_copy_error(text, label, 7, 14))
+            )
+        elif proof_filename and any(
+            word in str(candidate["proofText"]).casefold()
+            for word in ("screenshot", "screen", "image", "demonstrates")
+        ):
+            last_content_error = "proof caption must describe the benefit naturally"
+        elif app["appName"].casefold() not in str(candidate["cta"]["text"]).casefold():
+            last_content_error = f"CTA must name {app['appName']}"
         else:
             content = candidate
             break
@@ -455,8 +707,11 @@ STYLE: {content_style}
 SLIDE COPY:
 {slide_copy}
 
-Write one short, natural description and 3-5 relevant hashtags. Choose one
-real, existing song that fits the mood. Give its exact title and artist.
+Write one 12-28 word description that states exactly what the app does and why
+someone would use it. Focus on one benefit instead of listing every feature.
+Use easy everyday language, a direct CTA, and no corporate filler. Also write
+3-5 relevant hashtags. Choose one real, existing song that fits the mood. Give
+its exact title and artist.
 Do not use any song in this list:
 {previous_audio}
 
@@ -484,6 +739,10 @@ Return ONLY valid JSON:
         hashtags = metadata.get("hashtags")
         if not description:
             last_metadata_error = "description is missing"
+        elif description_error := _short_copy_error(
+            description, "description", 12, 28
+        ):
+            last_metadata_error = description_error
         elif not isinstance(hashtags, list) or not 3 <= len(hashtags) <= 5:
             last_metadata_error = "expected 3-5 hashtags"
         elif not all(isinstance(tag, str) and tag.startswith("#") for tag in hashtags):

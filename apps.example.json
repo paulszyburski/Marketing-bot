@@ -6,8 +6,10 @@
     "appLink": "https://example.com",
     "logo": "assets/driveproof/logo.png",
     "advertisingImage": "assets/advertising/driveproof/advertisement.png",
+    "backgroundMusic": "assets/music/driveproof",
     "proofAssetsPath": "assets/proof/driveproof",
     "enabled": true,
+    "uploadPlatforms": ["tiktok", "youtube"],
     "profilePath": "data/DriveProof/chrome_profile"
   }
 ]

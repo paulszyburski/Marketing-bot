@@ -5,6 +5,8 @@ from pathlib import Path
 import imageio_ffmpeg
 from PIL import Image, ImageDraw, ImageFont
 
+from automation.montage.branding import create_google_play_overlay
+
 
 DEFAULT_FADE_SECONDS = 0.5
 DEFAULT_HOLD_SECONDS = 2.0
@@ -143,24 +145,29 @@ def append_advertising_image(
     ]
 
     with tempfile.TemporaryDirectory(prefix="marketing-bot-overlays-") as temp_dir:
-        for index, (text, start, end) in enumerate(valid_overlays, start=2):
-            overlay_path = Path(temp_dir) / f"overlay_{index}.png"
+        current_label = "base"
+        next_input = 2
+        for overlay_number, (text, start, end) in enumerate(valid_overlays, start=1):
+            overlay_path = Path(temp_dir) / f"overlay_{overlay_number}.png"
             _create_text_overlay(overlay_path, text, width, height)
             command.extend(["-loop", "1", "-i", str(overlay_path)])
-            input_label = "base" if index == 2 else f"overlayed{index - 1}"
-            output_label = "outv" if index == len(valid_overlays) + 1 else f"overlayed{index}"
+            output_label = f"text_overlay_{overlay_number}"
             filter_parts.append(
-                f"[{input_label}][{index}:v]overlay=0:0:"
+                f"[{current_label}][{next_input}:v]overlay=0:0:"
                 f"enable='between(t,{start},{end})'[{output_label}]"
             )
+            current_label = output_label
+            next_input += 1
 
-        if not valid_overlays:
-            filter_parts.append("[base]format=yuv420p[outv]")
-        else:
-            filter_parts.append("[outv]format=yuv420p[finalv]")
+        badge_path = Path(temp_dir) / "google_play_overlay.png"
+        create_google_play_overlay(badge_path, width, height)
+        command.extend(["-loop", "1", "-i", str(badge_path)])
+        filter_parts.append(
+            f"[{current_label}][{next_input}:v]overlay=0:0[badged]"
+        )
+        filter_parts.append("[badged]format=yuv420p[finalv]")
 
-        video_output_label = "[finalv]" if valid_overlays else "[outv]"
-        command.extend(["-filter_complex", ";".join(filter_parts), "-map", video_output_label])
+        command.extend(["-filter_complex", ";".join(filter_parts), "-map", "[finalv]"])
 
         if _has_audio(ffmpeg, video_path):
             command.extend(

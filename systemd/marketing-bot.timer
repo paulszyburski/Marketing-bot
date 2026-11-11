@@ -1,8 +1,9 @@
 [Unit]
-Description=Run Marketing Bot twice daily at random times
+Description=Run Marketing Bot three times daily at random times
 
 [Timer]
 OnCalendar=*-*-* 06:00:00
+OnCalendar=*-*-* 12:00:00
 OnCalendar=*-*-* 18:00:00
 RandomizedDelaySec=5h59m
 AccuracySec=1s

@@ -7,6 +7,7 @@ from playwright.sync_api import sync_playwright
 
 from automation.browser.browser import Browser
 from automation.browser.tiktok import Tiktok
+from automation.browser.youtube import YouTube
 from automation.montage.video import append_advertising_image
 
 
@@ -36,6 +37,44 @@ def upload_with_browser(playwright, app, upload):
         if pw_browser is not None:
             pw_browser.close()
         chrome.close()
+
+
+def upload_to_socials(playwright, app, tiktok_upload, youtube_upload):
+    """Run each configured uploader while sharing the app's browser profile."""
+    platforms = {
+        str(platform).casefold()
+        for platform in app.get("uploadPlatforms", ["tiktok", "youtube"])
+    }
+    chrome = Browser(app)
+    pw_browser = None
+    failures = []
+    try:
+        chrome.open()
+        pw_browser = playwright.chromium.connect_over_cdp(chrome.cdp_url)
+        context = pw_browser.contexts[0]
+        if "tiktok" in platforms:
+            tiktok = Tiktok(context, app)
+            try:
+                tiktok.open()
+                tiktok_upload(tiktok)
+            except Exception as exc:
+                tiktok.save_debug_artifacts()
+                failures.append(("TikTok", exc))
+        if "youtube" in platforms:
+            youtube = YouTube(context, app)
+            try:
+                youtube.open()
+                youtube_upload(youtube)
+            except Exception as exc:
+                youtube.save_debug_artifacts()
+                failures.append(("YouTube", exc))
+    finally:
+        if pw_browser is not None:
+            pw_browser.close()
+        chrome.close()
+    if failures:
+        details = "; ".join(f"{name}: {error}" for name, error in failures)
+        raise RuntimeError(f"One or more social uploads failed: {details}")
 
 
 def choose_app(apps):
@@ -74,9 +113,10 @@ def select_app_and_login(apps_path):
             pw_browser = playwright.chromium.connect_over_cdp(chrome.cdp_url)
             context = pw_browser.contexts[0]
             Tiktok(context, app).login_manually()
+            YouTube(context, app).login_manually()
             print(
-                f"Login session saved in {app['profilePath']} for "
-                f"{app['appName']}."
+                f"TikTok and YouTube sessions saved in {app['profilePath']} "
+                f"for {app['appName']}."
             )
         finally:
             if pw_browser is not None:

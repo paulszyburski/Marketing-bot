@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 from automation.montage.video import append_advertising_image
+from automation.montage.branding import add_google_play_badge
+from PIL import Image
 
 
 class Tiktok:
@@ -414,11 +416,14 @@ class Tiktok:
             except (OSError, json.JSONDecodeError):
                 text_overlays = None
 
-        video_path = append_advertising_image(
-            video_path,
-            self._advertising_image(),
-            text_overlays=text_overlays,
-        )
+        if source_path.stem.endswith("_with_ad"):
+            video_path = str(source_path.resolve())
+        else:
+            video_path = append_advertising_image(
+                video_path,
+                self._advertising_image(),
+                text_overlays=text_overlays,
+            )
 
         self._wait_for_manual_login_if_needed()
 
@@ -536,7 +541,7 @@ class Tiktok:
         photos = sorted(
             str(path.resolve())
             for path in Path(slides_path).iterdir()
-            if path.suffix.lower()
+            if not path.name.startswith(".") and path.suffix.lower()
             in {
                 ".jpg",
                 ".jpeg",
@@ -552,7 +557,10 @@ class Tiktok:
 
         # Always upload the app-specific advertisement after every generated
         # slide, regardless of its filename.
-        photos.append(str(self._advertising_image()))
+        badged_advertising_image = Path(slides_path) / ".tiktok_ad_with_badge.png"
+        with Image.open(self._advertising_image()) as ad_image:
+            add_google_play_badge(ad_image).save(badged_advertising_image)
+        photos.append(str(badged_advertising_image.resolve()))
 
         self._click_when_ready(
             self._upload_button()
@@ -595,9 +603,10 @@ class Tiktok:
 
         file_chooser = file_info.value
 
-        file_chooser.set_files(
-            photos
-        )
+        try:
+            file_chooser.set_files(photos)
+        finally:
+            badged_advertising_image.unlink(missing_ok=True)
 
         self.page.wait_for_timeout(
             self.settle_ms
